@@ -62,7 +62,7 @@ contract xDonate is Ownable {
             fromAsset,
             amountIn,
             donationAsset,
-            30, // 0.3% default max slippage
+            100, // 1% default max slippage
             100 // 1% default max slippage
         );
     }
@@ -104,8 +104,10 @@ contract xDonate is Ownable {
                 donationAsset,          // _asset: address of the token contract      
                 donationAddress,        // _delegate: address that can revert or forceLocal on destination      
                 IERC20(donationAsset).balanceOf(address(this)),            // _amount: amount of tokens to transfer      
-                connextSlippage,                     // _slippage: the maximum amount of slippage the user will accept in BPS      
-                "0x"                    // _callData: empty bytes because we're only sending funds    
+                connextSlippage,        // _slippage: the maximum amount of slippage the user will accept in BPS      
+                bytes("")               // _callData: empty bytes because we're only sending funds    
             );
     }
+
+    receive() external payable {}
 }
