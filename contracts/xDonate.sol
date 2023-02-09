@@ -19,6 +19,7 @@ import {IWeth} from "./interfaces/IWeth.sol";
  */
 
 contract xDonate is Ownable {
+    uint256 public constant MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
     event Swept(bytes32 indexed crosschainId, address donationAsset, uint256 donationAmount, uint256 relayerFee);
 
     ISwapRouter public immutable swapRouter;
@@ -29,6 +30,8 @@ contract xDonate is Ownable {
     uint32 public immutable donationDomain;
 
     uint24 public constant poolFee = 3000;
+
+    bool public approvedDonationAsset;
     
     constructor(
         ISwapRouter _swapRouter,
@@ -112,7 +115,11 @@ contract xDonate is Ownable {
         }
 
         // Approve connext to bridge donationAsset.
-        TransferHelper.safeApprove(donationAsset, address(connext), amountOut);
+        if (!approvedDonationAsset) {
+            // use max approval for assset
+            TransferHelper.safeApprove(donationAsset, address(connext), MAX_INT);
+            approvedDonationAsset = true;
+        }
 
         bytes32 transferId = connext.xcall{value: msg.value}(   
             donationDomain,         // _destination: Domain ID of the destination chain      
