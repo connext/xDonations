@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "build": "hardhat compile"
+  },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^2.0.1",
     "@nomiclabs/hardhat-etherscan": "^3.1.5",
