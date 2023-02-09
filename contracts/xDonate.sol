@@ -3,7 +3,6 @@ pragma solidity ^0.8.17;
 import {IConnext} from "@connext/smart-contracts/contracts/core/connext/interfaces/IConnext.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {Ownable} from  "@openzeppelin/contracts/access/Ownable.sol";
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 
@@ -18,46 +17,75 @@ import {IWeth} from "./interfaces/IWeth.sol";
             are different, then xcalls donationAsset to the donation address/domain.
  */
 
-contract xDonate is Ownable {
+contract xDonate {
     uint256 public constant MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
-    event Swept(bytes32 indexed crosschainId, address donationAsset, uint256 donationAmount, uint256 relayerFee);
+    uint256 public constant MIN_SLIPPAGE = 10; // 0.1% is min slippage
+    event Swept(bytes32 indexed crosschainId, address donationAsset, uint256 donationAmount, uint256 relayerFee, address sweeper);
+    event SweeperAdded(address indexed added, address indexed caller);
+    event SweeperRemoved(address indexed removed, address indexed caller);
 
     ISwapRouter public immutable swapRouter;
     IConnext public immutable connext;
     IWeth public immutable weth;
 
     address public immutable donationAddress;
+    address public immutable donationAsset; // should be USDC
     uint32 public immutable donationDomain;
 
     uint24 public constant poolFee = 3000;
 
-    mapping(address => bool) public approvedDonationAsset;
+    bool public approvedDonationAsset;
+
+    mapping(address => bool) public sweepers;
     
     constructor(
         ISwapRouter _swapRouter,
         IConnext _connext,
         IWeth _weth,
         address _donationAddress,
+        address _donationAsset,
         uint32 _donationDomain
-    ) Ownable() {
+    ) {
         swapRouter = _swapRouter;
         connext = _connext;
         weth = _weth;
+        donationAsset = _donationAsset;
         donationAddress = _donationAddress;
         donationDomain = _donationDomain;
+        // initialize deployer as sweeper
+        _addSweeper(msg.sender);
+    }
+
+    modifier onlySweeper {
+        require(sweepers[msg.sender], "!sweeper");
+        _;
+    }
+
+    function addSweeper(address _sweeper) external onlySweeper {
+        _addSweeper(_sweeper);
+    }
+
+    function _addSweeper(address _sweeper) internal {
+        require(!sweepers[_sweeper], "approved");
+        sweepers[_sweeper] = true;
+        emit SweeperAdded(_sweeper, msg.sender);
+    }
+
+    function removeSweeper(address _sweeper) external onlySweeper {
+        require(sweepers[_sweeper], "!approved");
+        sweepers[_sweeper] = false;
+        emit SweeperRemoved(_sweeper, msg.sender);
     }
 
     function sweep (
         address fromAsset,
         uint256 amountIn,
-        address donationAsset,
         uint256 uniswapSlippage,
         uint256 connextSlippage
-    ) external payable onlyOwner {
+    ) external payable onlySweeper {
         _sweep (
             fromAsset,
             amountIn,
-            donationAsset,
             uniswapSlippage,
             connextSlippage
         );
@@ -65,13 +93,11 @@ contract xDonate is Ownable {
 
     function sweep (
         address fromAsset,
-        uint256 amountIn,
-        address donationAsset
-    ) external payable onlyOwner {
+        uint256 amountIn
+    ) external payable onlySweeper {
         _sweep (
             fromAsset,
             amountIn,
-            donationAsset,
             100, // 1% default max slippage
             100 // 1% default max slippage
         );
@@ -80,13 +106,17 @@ contract xDonate is Ownable {
     function _sweep (
         address fromAsset,
         uint256 amountIn,
-        address donationAsset,
         uint256 uniswapSlippage,
         uint256 connextSlippage
     ) internal {
+        // Sanity check: amounts above mins
+        require(amountIn > 0, "!amount");
+        require(uniswapSlippage >= MIN_SLIPPAGE, "!uniswapSlippage");
+        require(connextSlippage >= MIN_SLIPPAGE, "!connextSlippage");
+
         uint256 amountOut = amountIn;
 
-        // wrap asset if needed
+        // wrap origin asset if needed
         if (fromAsset == address(0)) {
             weth.deposit{value: amountIn}();
             fromAsset = address(weth);
@@ -115,22 +145,22 @@ contract xDonate is Ownable {
         }
 
         // Approve connext to bridge donationAsset.
-        if (!approvedDonationAsset[donationAsset]) {
+        if (!approvedDonationAsset) {
+            approvedDonationAsset = true;
             // use max approval for assset
             TransferHelper.safeApprove(donationAsset, address(connext), MAX_INT);
-            approvedDonationAsset[donationAsset] = true;
         }
 
         bytes32 transferId = connext.xcall{value: msg.value}(   
             donationDomain,         // _destination: Domain ID of the destination chain      
             donationAddress,        // _to: address receiving the funds on the destination      
             donationAsset,          // _asset: address of the token contract      
-            owner(),                // _delegate: address that can revert or forceLocal on destination      
+            msg.sender,             // _delegate: address that can revert or forceLocal on destination      
             amountOut,              // _amount: amount of tokens to transfer      
             connextSlippage,        // _slippage: the maximum amount of slippage the user will accept in BPS      
             bytes("")               // _callData: empty bytes because we're only sending funds    
         );
-        emit Swept(transferId, donationAsset, amountOut, msg.value);
+        emit Swept(transferId, donationAsset, amountOut, msg.value, msg.sender);
     }
 
     receive() external payable {}
