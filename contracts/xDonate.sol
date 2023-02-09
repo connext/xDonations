@@ -2,6 +2,7 @@
 pragma solidity ^0.8.17;
 import {IConnext} from "@connext/smart-contracts/contracts/core/connext/interfaces/IConnext.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
 import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
@@ -32,9 +33,8 @@ contract xDonate {
     address public immutable donationAsset; // should be USDC
     uint32 public immutable donationDomain;
 
-    uint24 public constant poolFee = 3000;
-
     bool public approvedDonationAsset;
+    uint8 public immutable donationAssetDecimals;
 
     mapping(address => bool) public sweepers;
     
@@ -54,6 +54,8 @@ contract xDonate {
         donationDomain = _donationDomain;
         // initialize deployer as sweeper
         _addSweeper(msg.sender);
+        // initialize decimals
+        donationAssetDecimals = IERC20Metadata(_donationAsset).decimals();
     }
 
     modifier onlySweeper {
@@ -79,12 +81,14 @@ contract xDonate {
 
     function sweep (
         address fromAsset,
+        uint24 poolFee,
         uint256 amountIn,
         uint256 uniswapSlippage,
         uint256 connextSlippage
     ) external payable onlySweeper {
         _sweep (
             fromAsset,
+            poolFee,
             amountIn,
             uniswapSlippage,
             connextSlippage
@@ -93,18 +97,21 @@ contract xDonate {
 
     function sweep (
         address fromAsset,
+        uint24 poolFee,
         uint256 amountIn
     ) external payable onlySweeper {
         _sweep (
             fromAsset,
+            poolFee,
             amountIn,
-            100, // 1% default max slippage
+            1000, // 1% default max slippage
             100 // 1% default max slippage
         );
     }
 
     function _sweep (
         address fromAsset,
+        uint24 poolFee,
         uint256 amountIn,
         uint256 uniswapSlippage,
         uint256 connextSlippage
@@ -127,6 +134,9 @@ contract xDonate {
             // Approve the uniswap router to spend fromAsset.
             TransferHelper.safeApprove(fromAsset, address(swapRouter), amountIn);
 
+            // Convert in -> out decimals
+            uint256 amountInNormalized = normalizeDecimals(IERC20Metadata(fromAsset).decimals(), donationAssetDecimals, amountIn);
+
             // Set up uniswap swap params.
             ISwapRouter.ExactInputSingleParams memory params =
                 ISwapRouter.ExactInputSingleParams({
@@ -136,7 +146,7 @@ contract xDonate {
                     recipient: address(this),
                     deadline: block.timestamp,
                     amountIn: amountIn,
-                    amountOutMinimum: amountIn * (10000 - uniswapSlippage) / 10000,
+                    amountOutMinimum: amountInNormalized * (10_000 - uniswapSlippage) / 10_000,
                     sqrtPriceLimitX96: 0
                 });
 
@@ -161,6 +171,24 @@ contract xDonate {
             bytes("")               // _callData: empty bytes because we're only sending funds    
         );
         emit Swept(transferId, donationAsset, amountOut, msg.value, msg.sender);
+    }
+
+    function normalizeDecimals(
+        uint8 _in,
+        uint8 _out,
+        uint256 _amount
+    ) internal pure returns (uint256) {
+        if (_in == _out) {
+            return _amount;
+        }
+        // Convert this value to the same decimals as _out
+        uint256 normalized;
+        if (_in < _out) {
+            normalized = _amount * (10**(_out - _in));
+        } else {
+            normalized = _amount / (10**(_in - _out));
+        }
+        return normalized;
     }
 
     receive() external payable {}
