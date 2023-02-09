@@ -3,9 +3,11 @@ pragma solidity ^0.8.17;
 import {IConnext} from "@connext/smart-contracts/contracts/core/connext/interfaces/IConnext.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import '@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol';
-import '@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol';
+import {Ownable} from  "@openzeppelin/contracts/access/Ownable.sol";
+import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+import {IWeth} from "./interfaces/IWeth.sol";
 
 /**
     @notice The xDonate contract helps you accept donations from any chain to a pre-specified
@@ -17,8 +19,11 @@ import '@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol';
  */
 
 contract xDonate is Ownable {
+    event Swept(bytes32 indexed crosschainId, address donationAsset, uint256 donationAmount, uint256 relayerFee);
+
     ISwapRouter public immutable swapRouter;
     IConnext public immutable connext;
+    IWeth public immutable weth;
 
     address public immutable donationAddress;
     uint32 public immutable donationDomain;
@@ -28,11 +33,13 @@ contract xDonate is Ownable {
     constructor(
         ISwapRouter _swapRouter,
         IConnext _connext,
+        IWeth _weth,
         address _donationAddress,
         uint32 _donationDomain
-    ) {
+    ) Ownable() {
         swapRouter = _swapRouter;
         connext = _connext;
+        weth = _weth;
         donationAddress = _donationAddress;
         donationDomain = _donationDomain;
     }
@@ -75,6 +82,14 @@ contract xDonate is Ownable {
         uint256 connextSlippage
     ) internal {
         uint256 amountOut = amountIn;
+
+        // wrap asset if needed
+        if (fromAsset == address(0)) {
+            weth.deposit{value: amountIn}();
+            fromAsset = address(weth);
+        }
+
+        // swap to donation asset if needed
         if (fromAsset != donationAsset) {
             // Approve the uniswap router to spend fromAsset.
             TransferHelper.safeApprove(fromAsset, address(swapRouter), amountIn);
@@ -95,18 +110,20 @@ contract xDonate is Ownable {
             // The call to `exactInputSingle` executes the swap.
             amountOut = swapRouter.exactInputSingle(params);
         }
+
         // Approve connext to bridge donationAsset.
         TransferHelper.safeApprove(donationAsset, address(connext), amountOut);
 
-            connext.xcall{value: msg.value}(   
-                donationDomain,         // _destination: Domain ID of the destination chain      
-                donationAddress,        // _to: address receiving the funds on the destination      
-                donationAsset,          // _asset: address of the token contract      
-                donationAddress,        // _delegate: address that can revert or forceLocal on destination      
-                IERC20(donationAsset).balanceOf(address(this)),            // _amount: amount of tokens to transfer      
-                connextSlippage,        // _slippage: the maximum amount of slippage the user will accept in BPS      
-                bytes("")               // _callData: empty bytes because we're only sending funds    
-            );
+        bytes32 transferId = connext.xcall{value: msg.value}(   
+            donationDomain,         // _destination: Domain ID of the destination chain      
+            donationAddress,        // _to: address receiving the funds on the destination      
+            donationAsset,          // _asset: address of the token contract      
+            owner(),                // _delegate: address that can revert or forceLocal on destination      
+            amountOut,              // _amount: amount of tokens to transfer      
+            connextSlippage,        // _slippage: the maximum amount of slippage the user will accept in BPS      
+            bytes("")               // _callData: empty bytes because we're only sending funds    
+        );
+        emit Swept(transferId, donationAsset, amountOut, msg.value);
     }
 
     receive() external payable {}
