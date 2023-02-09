@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.17;
+
 import {IConnext} from "@connext/smart-contracts/contracts/core/connext/interfaces/IConnext.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -9,35 +10,69 @@ import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/Transfer
 
 import {IWeth} from "./interfaces/IWeth.sol";
 
-/**
-    @notice The xDonate contract helps you accept donations from any chain to a pre-specified
-            donationAddress and donationDomain.
-
-            The contract expects users to transfer tokens to it, and then implements a single 
-            onlyOwner function, sweep, that swaps the token on uniswap if fromAsset and donationAsset
-            are different, then xcalls donationAsset to the donation address/domain.
- */
-
+/// @title xDonate
+/// @author Connext Labs
+/// @notice The xDonate contract helps you accept donations from any chain to a pre-specified
+///         donationAddress and donationDomain.
+///
+///         The contract expects users to transfer tokens to it, and then implements a single 
+///         admin function, `sweep`, that swaps the token on uniswap if `fromAsset` and `donationAsset`
+///         are different, then `xcall`s the `donationAsset` to the `donationAddress` / `domain`.
+/// @dev The domains hosting this contract *MUST* support Uniswap V3
 contract xDonate {
-    uint256 public constant MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
-    uint256 public constant MIN_SLIPPAGE = 10; // 0.1% is min slippage
+    //////////////////// Events
+    /// @notice Emitted when funds are sent to the donation domain
     event Swept(bytes32 indexed crosschainId, address donationAsset, uint256 donationAmount, uint256 relayerFee, address sweeper);
+
+    /// @notice Emitted when a sweeper is added to the whitelist
+    /// @param added The sweeper added
+    /// @param caller Who added the sweeper
     event SweeperAdded(address indexed added, address indexed caller);
+
+    /// @notice Emitted when a sweeper is removed from the whitelist
+    /// @param removed The sweeper removed
+    /// @param caller Who removed the sweeper
     event SweeperRemoved(address indexed removed, address indexed caller);
 
+    //////////////////// Constants
+    /// @notice Stores the UINT.MAX for infinite approvals
+    uint256 public constant MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
+
+    /// @notice Stores the lower bound for slippage used in sweep as sanity check
+    uint256 public constant MIN_SLIPPAGE = 10; // 0.01% is min slippage
+
+    //////////////////// Storage
+    /// @notice UniswapV3 swap router contract to swap into `donationAsset`
     ISwapRouter public immutable swapRouter;
+
+    /// @notice Connext contract used to send assets across chains
     IConnext public immutable connext;
+
+    /// @notice WETH address to handle native assets before swapping / sending. 
     IWeth public immutable weth;
 
+    /// @notice Address on the specified domain to send funds to
     address public immutable donationAddress;
-    address public immutable donationAsset; // should be USDC
+
+    /// @notice Domain the `donationAddress` lives on
     uint32 public immutable donationDomain;
 
+    /// @notice Asset to send to the specified address. Must be asset on the chain the contract
+    ///         is deployed to
+    address public immutable donationAsset;
+
+    /// @notice Stores whether or not the donation asset has been approved to Connext.
+    ///         Uses infinite approval.
     bool public approvedDonationAsset;
+
+    /// @notice Caches the decimals for the donation address.
+    /// @dev Used to generate the minimum amount out when swapping into donation address on `sweep`
     uint8 public immutable donationAssetDecimals;
 
+    /// @notice Mapping that contains addresses permissioned to edit the whitelist / sweep
     mapping(address => bool) public sweepers;
     
+    //////////////////// Constructor
     constructor(
         ISwapRouter _swapRouter,
         IConnext _connext,
@@ -58,28 +93,41 @@ contract xDonate {
         donationAssetDecimals = IERC20Metadata(_donationAsset).decimals();
     }
 
+    //////////////////// Modifiers
+
+    /// @notice Ensures the msg.sender is a whitelisted sweeper
     modifier onlySweeper {
         require(sweepers[msg.sender], "!sweeper");
         _;
     }
 
-    function addSweeper(address _sweeper) external onlySweeper {
-        _addSweeper(_sweeper);
+    //////////////////// Payable
+    receive() external payable {}
+
+    //////////////////// Public functions
+
+    /// @notice Adds a sweeper to the whitelist. Callable by an existing whitelisted agent.
+    /// @param sweeper The address to add
+    function addSweeper(address sweeper) external onlySweeper {
+        _addSweeper(sweeper);
     }
 
-    function _addSweeper(address _sweeper) internal {
-        require(!sweepers[_sweeper], "approved");
-        sweepers[_sweeper] = true;
-        emit SweeperAdded(_sweeper, msg.sender);
+    /// @notice Removes a sweeper to the whitelist. Callable by an existing whitelisted agent.
+    /// @param sweeper The address to remove
+    function removeSweeper(address sweeper) external onlySweeper {
+        require(sweepers[sweeper], "!approved");
+        sweepers[sweeper] = false;
+        emit SweeperRemoved(sweeper, msg.sender);
     }
 
-    function removeSweeper(address _sweeper) external onlySweeper {
-        require(sweepers[_sweeper], "!approved");
-        sweepers[_sweeper] = false;
-        emit SweeperRemoved(_sweeper, msg.sender);
-    }
-
-    function sweep (
+    /// @notice Moves funds from this contract to the `donationAddress` on the specified
+    ///         `domain`. Swaps into `donationAddress` if needed.
+    /// @param fromAsset The asset to move to mainnet
+    /// @param poolFee The `poolFee` on the uniswap `fromAsset` <> `donationAsset` pool
+    /// @param amountIn The amount of asset to move to mainnet
+    /// @param uniswapSlippage The allowed slippage on uniswap pool bps (i.e. 1% is 100)
+    /// @param connextSlippage The allowed slippage on the Connext transfer in bps
+    function sweep(
         address fromAsset,
         uint24 poolFee,
         uint256 amountIn,
@@ -95,7 +143,12 @@ contract xDonate {
         );
     }
 
-    function sweep (
+    /// @notice Moves funds from this contract to the `donationAddress` on the specified
+    ///         `domain`. Swaps into `donationAddress` if needed. Defaults slippage to 1%.
+    /// @param fromAsset The asset to move to mainnet
+    /// @param poolFee The `poolFee` on the uniswap `fromAsset` <> `donationAsset` pool
+    /// @param amountIn The amount of asset to move to mainnet
+    function sweep(
         address fromAsset,
         uint24 poolFee,
         uint256 amountIn
@@ -104,12 +157,19 @@ contract xDonate {
             fromAsset,
             poolFee,
             amountIn,
-            1000, // 1% default max slippage
+            100, // 1% default max slippage
             100 // 1% default max slippage
         );
     }
 
-    function _sweep (
+    /// @notice Moves funds from this contract to the `donationAddress` on the specified
+    ///         `domain`. Swaps into `donationAddress` if needed.
+    /// @param fromAsset The asset to move to mainnet
+    /// @param poolFee The `poolFee` on the uniswap `fromAsset` <> `donationAsset` pool
+    /// @param amountIn The amount of asset to move to mainnet
+    /// @param uniswapSlippage The allowed slippage on uniswap pool bps (i.e. 1% is 100)
+    /// @param connextSlippage The allowed slippage on the Connext transfer in bps
+    function _sweep(
         address fromAsset,
         uint24 poolFee,
         uint256 amountIn,
@@ -135,7 +195,7 @@ contract xDonate {
             TransferHelper.safeApprove(fromAsset, address(swapRouter), amountIn);
 
             // Convert in -> out decimals
-            uint256 amountInNormalized = normalizeDecimals(IERC20Metadata(fromAsset).decimals(), donationAssetDecimals, amountIn);
+            uint256 amountInNormalized = _normalizeDecimals(IERC20Metadata(fromAsset).decimals(), donationAssetDecimals, amountIn);
 
             // Set up uniswap swap params.
             ISwapRouter.ExactInputSingleParams memory params =
@@ -161,6 +221,7 @@ contract xDonate {
             TransferHelper.safeApprove(donationAsset, address(connext), MAX_INT);
         }
 
+        // Perform connext transfer
         bytes32 transferId = connext.xcall{value: msg.value}(   
             donationDomain,         // _destination: Domain ID of the destination chain      
             donationAddress,        // _to: address receiving the funds on the destination      
@@ -173,7 +234,15 @@ contract xDonate {
         emit Swept(transferId, donationAsset, amountOut, msg.value, msg.sender);
     }
 
-    function normalizeDecimals(
+    //////////////////// Internal functions
+
+    function _addSweeper(address _sweeper) internal {
+        require(!sweepers[_sweeper], "approved");
+        sweepers[_sweeper] = true;
+        emit SweeperAdded(_sweeper, msg.sender);
+    }
+
+    function _normalizeDecimals(
         uint8 _in,
         uint8 _out,
         uint256 _amount
@@ -182,14 +251,7 @@ contract xDonate {
             return _amount;
         }
         // Convert this value to the same decimals as _out
-        uint256 normalized;
-        if (_in < _out) {
-            normalized = _amount * (10**(_out - _in));
-        } else {
-            normalized = _amount / (10**(_in - _out));
-        }
+        uint256 normalized = _in < _out ? _amount * (10**(_out - _in)) : _amount / (10**(_in - _out));
         return normalized;
     }
-
-    receive() external payable {}
 }
