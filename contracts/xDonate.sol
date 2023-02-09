@@ -31,7 +31,7 @@ contract xDonate is Ownable {
 
     uint24 public constant poolFee = 3000;
 
-    bool public approvedDonationAsset;
+    mapping(address => bool) public approvedDonationAsset;
     
     constructor(
         ISwapRouter _swapRouter,
@@ -115,10 +115,10 @@ contract xDonate is Ownable {
         }
 
         // Approve connext to bridge donationAsset.
-        if (!approvedDonationAsset) {
+        if (!approvedDonationAsset[donationAsset]) {
             // use max approval for assset
             TransferHelper.safeApprove(donationAsset, address(connext), MAX_INT);
-            approvedDonationAsset = true;
+            approvedDonationAsset[donationAsset] = true;
         }
 
         bytes32 transferId = connext.xcall{value: msg.value}(   
