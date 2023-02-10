@@ -63,6 +63,8 @@ _Finding the `fromAsset`_
 
 This parameter is simply the token address of the asset you are trying to sweep to the donation address. This asset will be swapped (if needed) into the donation asset, and bridged across chains using Connext.
 
+If you are using the native asset, this value will be `0x0000000000000000000000000000000000000000`.
+
 _Finding the `poolFee`_
 
 This parameter represents the pool fee taken during the swap from the sweeping asset into the donation asset. If you are sweeping the donation asset, use a `poolFee` of `0`. Otherwise:
@@ -131,7 +133,7 @@ _Submitting the transaction_
 5. Use ~$15 worth of eth for the input fees. This amount is adjustable, so you can always use $0 and update (see the monitoring section below).
 6. Click `Write` and sign the transaction on metamask.
 
-**NOTE:** If the gas estimation fails on metamask, it likely means the `amountOutMin` has been updated
+**NOTE:** If the gas estimation fails on metamask, it likely means the `amountOutMin` has been updated.
 
 _Monitoring the crosschain transaction_
 
