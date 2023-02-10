@@ -30,6 +30,7 @@ describe("xDonate", function () {
   const [CONNEXT, WETH, DONATION_ADDRESS, DONATION_ASSET, DONATION_DOMAIN] = DEFAULT_ARGS[31337];
   const UNISWAP_SWAP_ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564"
   const WHALE = "0x385BAe68690c1b86e2f1Ad75253d080C14fA6e16" // this is the address that should have weth, donation, and random addr
+  const UNPERMISSIONED = "0x7088C5611dAE159A640d940cde0a3221a4af8896"
   const RANDOM_TOKEN = "0x4200000000000000000000000000000000000042" // this is OP
   const DONATION_ASSET_DECIMALS = 6; // USDC decimals on op
 
@@ -37,6 +38,7 @@ describe("xDonate", function () {
   let donation: Contract;
   let wallet: Wallet;
   let whale: Wallet;
+  let unpermissioned: Wallet;
   let donationToken: Contract;
   let weth: Contract;
   let randomToken: Contract;
@@ -46,6 +48,8 @@ describe("xDonate", function () {
     [wallet] = await ethers.getSigners() as unknown as Wallet[]
     // get whale
     whale = await ethers.getImpersonatedSigner(WHALE) as unknown as Wallet;
+    // get unpermissioned
+    unpermissioned = await ethers.getImpersonatedSigner(UNPERMISSIONED) as unknown as Wallet;
     // deploy contract
     const { xDonate } = await deployments.fixture(["xdonate"]);
     donation = new Contract(xDonate.address, xDonate.abi, ethers.provider);
@@ -130,24 +134,11 @@ describe("xDonate", function () {
       await expect(donation.connect(wallet).addSweeper(wallet.address)).to.be.revertedWith("approved")
     });
 
-    it("should fail to remove sweeper if caller is not sweeper", async () => {
-      await expect(donation.connect(whale).removeSweeper(whale.address)).to.be.revertedWith("!sweeper")
-    });
-
-    it("should fail to remove sweeper if not sweeper", async () => {
-      await expect(donation.connect(wallet).removeSweeper(whale.address)).to.be.revertedWith("!approved")
-    });
-
-    it("should be able to add / remove sweeper", async () => {
+    it("should be able to add sweeper", async () => {
       // Add whale
       await expect(donation.connect(wallet).addSweeper(whale.address)).to.emit(donation, "SweeperAdded").withArgs(whale.address, wallet.address)
 
       expect(await donation.sweepers(whale.address)).to.be.true;
-
-      // Remove whale
-      await expect(donation.connect(wallet).removeSweeper(whale.address)).to.emit(donation, "SweeperRemoved").withArgs(whale.address, wallet.address)
-
-      expect(await donation.sweepers(whale.address)).to.be.false;
     });
   })
 
@@ -186,7 +177,7 @@ describe("xDonate", function () {
 
     it("should fail if not permissioned", async () => {
       await expect(
-        donation.connect(whale).functions["sweep(address,uint24,uint256)"](
+        donation.connect(unpermissioned).functions["sweep(address,uint24,uint256)"](
           randomToken.address,
           100,
           constants.One,

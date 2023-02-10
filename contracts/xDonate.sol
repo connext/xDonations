@@ -29,11 +29,6 @@ contract xDonate {
     /// @param caller Who added the sweeper
     event SweeperAdded(address indexed added, address indexed caller);
 
-    /// @notice Emitted when a sweeper is removed from the whitelist
-    /// @param removed The sweeper removed
-    /// @param caller Who removed the sweeper
-    event SweeperRemoved(address indexed removed, address indexed caller);
-
     //////////////////// Constants
     /// @notice Stores the UINT.MAX for infinite approvals
     uint256 public constant MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
@@ -107,14 +102,6 @@ contract xDonate {
     /// @param sweeper The address to add
     function addSweeper(address sweeper) external onlySweeper {
         _addSweeper(sweeper);
-    }
-
-    /// @notice Removes a sweeper to the whitelist. Callable by an existing whitelisted agent.
-    /// @param sweeper The address to remove
-    function removeSweeper(address sweeper) external onlySweeper {
-        require(sweepers[sweeper], "!approved");
-        sweepers[sweeper] = false;
-        emit SweeperRemoved(sweeper, msg.sender);
     }
 
     /// @notice Moves funds from this contract to the `donationAddress` on the specified
