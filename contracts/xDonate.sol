@@ -6,7 +6,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-import {IQuoter} from "@uniswap/v3-periphery/contracts/interfaces/IQuoter.sol";
 import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 
 import {IWeth} from "./interfaces/IWeth.sol";
@@ -46,10 +45,6 @@ contract xDonate {
     /// @notice UniswapV3 swap router contract to swap into `donationAsset`
     /// @dev If deploying to celo, change hardcoded address. see https://docs.uniswap.org/contracts/v3/reference/deployments
     ISwapRouter public immutable swapRouter = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
-
-    /// @notice UniswapV3 quote router contract to get expected amount out when swapping into `donationAsset`
-    /// @dev If deploying to celo, change hardcoded address. see https://docs.uniswap.org/contracts/v3/reference/deployments
-    IQuoter public immutable swapQuoter = IQuoter(0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6);
 
     /// @notice Connext contract used to send assets across chains
     IConnext public immutable connext;
@@ -222,14 +217,8 @@ contract xDonate {
         // Approve the uniswap router to spend fromAsset.
         TransferHelper.safeApprove(fromAsset, address(swapRouter), amountIn);
 
-        // Get quote to generate expected amountOut
-        uint256 quoted = swapQuoter.quoteExactInputSingle(
-            fromAsset,
-            donationAsset,
-            poolFee,
-            amountIn,
-            0
-        );
+        // Normalize to donation asset decimals
+        uint256 normalized = normalizeDecimals(IERC20Metadata(fromAsset).decimals(), donationAssetDecimals, amountIn);
 
         // Set up uniswap swap params.
         ISwapRouter.ExactInputSingleParams memory params =
@@ -240,7 +229,7 @@ contract xDonate {
                 recipient: address(this),
                 deadline: block.timestamp,
                 amountIn: amountIn,
-                amountOutMinimum: quoted * (10_000 - uniswapSlippage) / 10_000,
+                amountOutMinimum: normalized * (10_000 - uniswapSlippage) / 10_000,
                 sqrtPriceLimitX96: 0
             });
 
@@ -252,5 +241,18 @@ contract xDonate {
         require(!sweepers[sweeper], "approved");
         sweepers[sweeper] = true;
         emit SweeperAdded(sweeper, msg.sender);
+    }
+
+    function normalizeDecimals(
+        uint8 decimalsIn,
+        uint8 decimalsOut,
+        uint256 amount
+    ) internal pure returns (uint256) {
+        if (decimalsIn == decimalsOut) {
+            return amount;
+        }
+        // Convert this value to the same decimals as _out
+        uint256 normalized = decimalsIn < decimalsOut ? amount * (10**(decimalsOut - decimalsIn)) : amount / (10**(decimalsIn - decimalsOut));
+        return normalized;
     }
 }
