@@ -6,6 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import {IQuoter} from "@uniswap/v3-periphery/contracts/interfaces/IQuoter.sol";
 import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
 
 import {IWeth} from "./interfaces/IWeth.sol";
@@ -43,7 +44,12 @@ contract xDonate {
 
     //////////////////// Storage
     /// @notice UniswapV3 swap router contract to swap into `donationAsset`
-    ISwapRouter public immutable swapRouter;
+    /// @dev If deploying to celo, change hardcoded address. see https://docs.uniswap.org/contracts/v3/reference/deployments
+    ISwapRouter public immutable swapRouter = ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
+
+    /// @notice UniswapV3 quote router contract to get expected amount out when swapping into `donationAsset`
+    /// @dev If deploying to celo, change hardcoded address. see https://docs.uniswap.org/contracts/v3/reference/deployments
+    IQuoter public immutable swapQuoter = IQuoter(0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6);
 
     /// @notice Connext contract used to send assets across chains
     IConnext public immutable connext;
@@ -70,14 +76,12 @@ contract xDonate {
     
     //////////////////// Constructor
     constructor(
-        ISwapRouter _swapRouter,
         IConnext _connext,
         IWeth _weth,
         address _donationAddress,
         address _donationAsset,
         uint32 _donationDomain
     ) {
-        swapRouter = _swapRouter;
         connext = _connext;
         weth = _weth;
         donationAddress = _donationAddress;
@@ -189,27 +193,7 @@ contract xDonate {
 
         // swap to donation asset if needed
         if (fromAsset != donationAsset) {
-            // Approve the uniswap router to spend fromAsset.
-            TransferHelper.safeApprove(fromAsset, address(swapRouter), amountIn);
-
-            // Convert in -> out decimals
-            uint256 amountInNormalized = _normalizeDecimals(IERC20Metadata(fromAsset).decimals(), donationAssetDecimals, amountIn);
-
-            // Set up uniswap swap params.
-            ISwapRouter.ExactInputSingleParams memory params =
-                ISwapRouter.ExactInputSingleParams({
-                    tokenIn: fromAsset,
-                    tokenOut: donationAsset,
-                    fee: poolFee,
-                    recipient: address(this),
-                    deadline: block.timestamp,
-                    amountIn: amountIn,
-                    amountOutMinimum: amountInNormalized * (10_000 - uniswapSlippage) / 10_000,
-                    sqrtPriceLimitX96: 0
-                });
-
-            // The call to `exactInputSingle` executes the swap.
-            amountOut = swapRouter.exactInputSingle(params);
+            amountOut = _swapForDonationAsset(fromAsset, poolFee, uniswapSlippage, amountIn);
         }
 
         // NOTE: max approval done in constructor
@@ -229,22 +213,44 @@ contract xDonate {
 
     //////////////////// Internal functions
 
-    function _addSweeper(address _sweeper) internal {
-        require(!sweepers[_sweeper], "approved");
-        sweepers[_sweeper] = true;
-        emit SweeperAdded(_sweeper, msg.sender);
+    function _swapForDonationAsset(
+        address fromAsset,
+        uint24 poolFee,
+        uint256 uniswapSlippage,
+        uint256 amountIn
+    ) internal returns (uint256) {
+        // Approve the uniswap router to spend fromAsset.
+        TransferHelper.safeApprove(fromAsset, address(swapRouter), amountIn);
+
+        // Get quote to generate expected amountOut
+        uint256 quoted = swapQuoter.quoteExactInputSingle(
+            fromAsset,
+            donationAsset,
+            poolFee,
+            amountIn,
+            0
+        );
+
+        // Set up uniswap swap params.
+        ISwapRouter.ExactInputSingleParams memory params =
+            ISwapRouter.ExactInputSingleParams({
+                tokenIn: fromAsset,
+                tokenOut: donationAsset,
+                fee: poolFee,
+                recipient: address(this),
+                deadline: block.timestamp,
+                amountIn: amountIn,
+                amountOutMinimum: quoted * (10_000 - uniswapSlippage) / 10_000,
+                sqrtPriceLimitX96: 0
+            });
+
+        // The call to `exactInputSingle` executes the swap.
+        return swapRouter.exactInputSingle(params);
     }
 
-    function _normalizeDecimals(
-        uint8 _in,
-        uint8 _out,
-        uint256 _amount
-    ) internal pure returns (uint256) {
-        if (_in == _out) {
-            return _amount;
-        }
-        // Convert this value to the same decimals as _out
-        uint256 normalized = _in < _out ? _amount * (10**(_out - _in)) : _amount / (10**(_in - _out));
-        return normalized;
+    function _addSweeper(address sweeper) internal {
+        require(!sweepers[sweeper], "approved");
+        sweepers[sweeper] = true;
+        emit SweeperAdded(sweeper, msg.sender);
     }
 }
