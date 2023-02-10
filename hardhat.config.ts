@@ -1,14 +1,22 @@
-import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
 import "hardhat-deploy";
+import "@nomiclabs/hardhat-ethers";
 import { config as envConfig } from "dotenv";
-import { polygon } from "@connext/smart-contracts/dist/src/typechain-types/contracts/messaging/connectors";
+import { HardhatUserConfig } from "hardhat/config";
 
 envConfig();
 
 const config: HardhatUserConfig = {
   solidity: "0.8.17",
+  defaultNetwork: "hardhat",
   networks: {
+    hardhat: {
+      chainId: 31337,
+      forking: {
+        url: "https://mainnet.optimism.io",
+        blockNumber: 73304256, // mined 09/02/2023
+      }
+    },
     // optimism
     optimism: {
       // PRIVATE_KEY loaded from .env file
