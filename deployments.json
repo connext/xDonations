@@ -5,7 +5,7 @@
       "chainId": "10",
       "contracts": {
         "xDonate": {
-          "address": "0x8068F52588E1A6eAcE9902E370d8746812ED3ec8",
+          "address": "0x8888759373137b84E9F0Ef13Ecb13e321C251eE3",
           "abi": [
             {
               "inputs": [
@@ -291,7 +291,7 @@
       "chainId": "42161",
       "contracts": {
         "xDonate": {
-          "address": "0xB3157Bdf25a9aa8aAf14B62a747fA1C01142231f",
+          "address": "0x8888759373137b84E9F0Ef13Ecb13e321C251eE3",
           "abi": [
             {
               "inputs": [
