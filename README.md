@@ -12,6 +12,12 @@ Using `xDonation.sol` allows anyone to donate funds, regardless of what chain th
 
 The sweeper has the ability to set slippage on the funds sent to the donation address. While it is not strictly required to whitelist the caller of this function, using a whitelist provides an additional layer of protection that ensures slippage is reasonable and no malicious tokens are interacted with. They _CANNOT_ change where the funds are sent, or which asset is donated.
 
+## Security
+
+These contracts have been audited twice:
+- By [Macro](https://0xmacro.com/): https://github.com/connext/xDonations/blob/main/audits/MacroAudit.pdf
+- By [Salus](https://salusec.io/): https://github.com/connext/xDonations/blob/main/audits/SalusAudit.pdf
+
 ## Development
 
 - Build:
