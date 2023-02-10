@@ -61,10 +61,6 @@ contract xDonate {
     ///         is deployed to
     address public immutable donationAsset;
 
-    /// @notice Stores whether or not the donation asset has been approved to Connext.
-    ///         Uses infinite approval.
-    bool public approvedDonationAsset;
-
     /// @notice Caches the decimals for the donation address.
     /// @dev Used to generate the minimum amount out when swapping into donation address on `sweep`
     uint8 public immutable donationAssetDecimals;
@@ -84,13 +80,15 @@ contract xDonate {
         swapRouter = _swapRouter;
         connext = _connext;
         weth = _weth;
-        donationAsset = _donationAsset;
         donationAddress = _donationAddress;
+        donationAsset = _donationAsset;
         donationDomain = _donationDomain;
         // initialize deployer as sweeper
         _addSweeper(msg.sender);
         // initialize decimals
         donationAssetDecimals = IERC20Metadata(_donationAsset).decimals();
+        // set max approval of connext to spend assset
+        TransferHelper.safeApprove(donationAsset, address(connext), MAX_INT);
     }
 
     //////////////////// Modifiers
@@ -214,12 +212,7 @@ contract xDonate {
             amountOut = swapRouter.exactInputSingle(params);
         }
 
-        // Approve connext to bridge donationAsset.
-        if (!approvedDonationAsset) {
-            approvedDonationAsset = true;
-            // use max approval for assset
-            TransferHelper.safeApprove(donationAsset, address(connext), MAX_INT);
-        }
+        // NOTE: max approval done in constructor
 
         // Perform connext transfer
         bytes32 transferId = connext.xcall{value: msg.value}(   
