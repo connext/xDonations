@@ -59,6 +59,10 @@ function sweep(
 
 ### Sweeping from explorer using EOA
 
+_Finding the `fromAsset`_
+
+This parameter is simply the token address of the asset you are trying to sweep to the donation address. This asset will be swapped (if needed) into the donation asset, and bridged across chains using Connext.
+
 _Finding the `poolFee`_
 
 This parameter represents the pool fee taken during the swap from the sweeping asset into the donation asset. If you are sweeping the donation asset, use a `poolFee` of `0`. Otherwise:
@@ -120,8 +124,23 @@ This parameter represents the BPS slippage you are willing to take when bridging
 
 _Submitting the transaction_
 
-1. Navigate to the contract on the explorer. Contract addresses across all chains can be found in [`deployments.json`](./deployments.json).
-2. Connect your wallet to the explorer. Ensure the connected wallet is a registered sweeper.
+1. Find all of the relevant values as described above.
+2. Navigate to the contract on the explorer. Contract addresses across all chains can be found in [`deployments.json`](./deployments.json).
+3. Connect your wallet to the explorer. Ensure the connected wallet is a registered sweeper.
+4. Input all of the parameter values.
+5. Use ~$15 worth of eth for the input fees. This amount is adjustable, so you can always use $0 and update (see the monitoring section below).
+6. Click `Write` and sign the transaction on metamask.
+
+**NOTE:** If the gas estimation fails on metamask, it likely means the `amountOutMin` has been updated
+
+_Monitoring the crosschain transaction_
+
+It is easy to monitor the status of the crosschain transaction using [Connextscan](https://connextscan.io/):
+
+1. Find the transaction hash for the `sweep` transaction you wish to monitor
+2. Navigate to [Connextscan](https://connextscan.io/)
+3. Search for the transaction hash on the explorer
+4. If there is a `Receive` transaction available, it should show funds being sent to the donation address. You may also see an `Action Required` window prompting you to bump the fees for the crosschain transaction. This window should prompt you to submit another transaction on the chain you swept from and will occur if the fees used on `sweep` are too low.
 
 ### Sweeping from a hardhat task using EOA
 
