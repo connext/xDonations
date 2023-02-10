@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { deployments, ethers } from "hardhat";
-import { BigNumberish, constants, Contract, providers, utils, Wallet } from "ethers";
+import { BigNumber, BigNumberish, constants, Contract, providers, utils, Wallet } from "ethers";
 import { DEFAULT_ARGS } from "../deploy";
 import { ERC20_ABI } from "@0xgafu/common-abi";
 
@@ -69,10 +69,10 @@ describe("xDonate", function () {
       expect(await donation.donationAddress()).to.be.eq(DONATION_ADDRESS);
       expect(await donation.donationAsset()).to.be.eq(DONATION_ASSET);
       expect(await donation.donationDomain()).to.be.eq(+DONATION_DOMAIN);
-  
+
       // Ensure deployer whitelisted
       expect(await donation.sweepers(wallet.address)).to.be.true;
-  
+
       // Ensure decimals set properly
       expect(await donation.donationAssetDecimals()).to.be.eq(DONATION_ASSET_DECIMALS);
 
@@ -86,7 +86,7 @@ describe("xDonate", function () {
       // Get initial balances
       const initialWallet = await wallet.getBalance();
       const initialDonation = await ethers.provider.getBalance(donation.address);
-      
+
       // Send funds to the contract
       const receipt = await fund(constants.AddressZero, 1, wallet, donation.address);
       const deducted = receipt.cumulativeGasUsed.mul(receipt.effectiveGasPrice).add(1)
@@ -143,184 +143,126 @@ describe("xDonate", function () {
   })
 
   describe("sweeping", () => {
+    before(async () => {
+      // fund the donation contract with eth, random token, and donation asset
+      await fund(constants.AddressZero, utils.parseEther("1"), wallet, donation.address);
+
+      await fund(DONATION_ASSET, utils.parseUnits("1", DONATION_ASSET_DECIMALS), whale, donation.address);
+
+      await fund(randomToken.address, utils.parseUnits("1", await randomToken.decimals()), whale, donation.address);
+    });
+
     it("should fail with invalid inputs (amount > 0, slippages >= min)", async () => {
       const minSlippage = await donation.MIN_SLIPPAGE();
       await expect(
-        donation.connect(wallet).functions["sweep(address,uint24,uint256)"](
+        donation.connect(wallet).sweep(
           randomToken.address,
           100,
           constants.Zero,
+          constants.One,
+          minSlippage
         )
       ).to.be.revertedWith("!amount")
 
       await expect(
-        donation.connect(wallet).functions["sweep(address,uint24,uint256,uint256,uint256)"](
+        donation.connect(wallet).sweep(
           randomToken.address,
           100,
           constants.One,
           constants.Zero,
           minSlippage
         )
-      ).to.be.revertedWith("!uniswapSlippage")
+      ).to.be.revertedWith("!amountOut")
 
       await expect(
-        donation.connect(wallet).functions["sweep(address,uint24,uint256,uint256,uint256)"](
+        donation.connect(wallet).sweep(
           randomToken.address,
           100,
           constants.One,
-          constants.Zero,
-          minSlippage
+          constants.One,
+          constants.Zero
         )
-      ).to.be.revertedWith("!uniswapSlippage")
+      ).to.be.revertedWith("!connextSlippage")
 
     })
 
     it("should fail if not permissioned", async () => {
       await expect(
-        donation.connect(unpermissioned).functions["sweep(address,uint24,uint256)"](
+        donation.connect(unpermissioned).sweep(
           randomToken.address,
           100,
           constants.One,
+          constants.One,
+          await donation.MIN_SLIPPAGE()
         )
       ).to.be.revertedWith("!sweeper")
     })
 
-    describe("should work with slippage defaults", () => {
-      before(async () => {
-        // fund the donation contract with eth, random token, and donation asset
-        await fund(constants.AddressZero, utils.parseEther("1"), wallet, donation.address);
 
-        await fund(DONATION_ASSET, utils.parseUnits("1", DONATION_ASSET_DECIMALS), whale, donation.address);
 
-        await fund(randomToken.address, utils.parseUnits("1", await randomToken.decimals()), whale, donation.address);
-      });
+    it("should work for donation asset", async () => {
+      // get initial connext balances
+      const initConnext = await donationToken.balanceOf(CONNEXT);
 
-      it("should work for donation asset", async () => {
-        // get initial connext balances
-        const initConnext = await donationToken.balanceOf(CONNEXT);
+      // send sweep tx
+      const sweeping = await donationToken.balanceOf(donation.address);
+      await expect(donation.connect(wallet).sweep(DONATION_ASSET, 0, sweeping, sweeping, 100)).to.emit(donation, "Swept");
 
-        // send sweep tx
-        const sweeping = await donationToken.balanceOf(donation.address);
-        await expect(donation.connect(wallet).functions["sweep(address,uint24,uint256)"](DONATION_ASSET, 0, sweeping)).to.emit(donation, "Swept");
+      // Ensure tokens got sent to connext
+      expect((await donationToken.balanceOf(donation.address)).toString()).to.be.eq("0")
+      expect((await donationToken.balanceOf(CONNEXT)).toString()).to.be.eq(initConnext.add(sweeping));
+    });
 
-        // Ensure tokens got sent to connext
-        expect((await donationToken.balanceOf(donation.address)).toString()).to.be.eq("0")
-        expect((await donationToken.balanceOf(CONNEXT)).toString()).to.be.eq(initConnext.add(sweeping));
-      });
+    it("should work for random token", async () => {
+      // get initial connext balances
+      const initConnext = await donationToken.balanceOf(CONNEXT);
 
-      // FIXME: throws -- likely due to error in slippage calc that will
-      // be reported in audit
-      it.skip("should work for random token", async () => {
-        // get initial connext balances
-        const initConnext = await donationToken.balanceOf(CONNEXT);
+      // get reasonable amount out
+      const sweeping = await randomToken.balanceOf(donation.address);
+      const randomDecimals = await randomToken.decimals();
+      const normalized = randomDecimals > DONATION_ASSET_DECIMALS ? sweeping.div(BigNumber.from(10).pow(randomDecimals - DONATION_ASSET_DECIMALS)) : sweeping.mul(BigNumber.from(10).pow(DONATION_ASSET_DECIMALS - randomDecimals));
+      // use 0.1% slippage (OP is > $2, donation = usdc)
+      const lowerBound = normalized.mul(10).div(10_000);
 
-        // send sweep tx
-        const sweeping = await randomToken.balanceOf(donation.address);
-        const tx = await donation.connect(wallet).functions["sweep(address,uint24,uint256)"](randomToken.address, 0, sweeping);
-        const receipt = await tx.wait();
+      // send sweep tx
+      const tx = await donation.connect(wallet).sweep(randomToken.address, 3000, sweeping, lowerBound, 1000);
+      const receipt = await tx.wait();
 
-        // TODO: check events (expecting swap, xcall, swept)
-        const emittedTopics = receipt.events.map(e => e.topics[0]);
-        expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
-        expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
-        expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
+      const emittedTopics = receipt.events.map(e => e.topics[0]);
+      expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
+      expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
+      expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
 
-        // Ensure tokens got sent to connext
-        expect((await randomToken.balanceOf(donation.address)).toString()).to.be.eq("0")
-        // Only asserting balance increased
-        expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
-      });
+      // Ensure tokens got sent to connext
+      expect((await randomToken.balanceOf(donation.address)).toString()).to.be.eq("0")
+      // Only asserting balance increased
+      expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
+    });
 
-      // FIXME: throws -- likely due to error in slippage calc that will
-      // be reported in audit
-      it.skip("should work for native asset", async () => {
-        // get initial connext balances
-        const initConnext = await donationToken.balanceOf(CONNEXT);
+    it("should work for native asset", async () => {
+      // get initial connext balances
+      const initConnext = await donationToken.balanceOf(CONNEXT);
 
-        // send sweep tx
-        const sweeping = await ethers.provider.getBalance(donation.address);
-        const tx = await donation.connect(wallet).functions["sweep(address,uint24,uint256)"](constants.AddressZero, 0, sweeping);
-        const receipt = await tx.wait();
+      // get reasonable amount out
+      const sweeping = await ethers.provider.getBalance(donation.address);
+      const normalized = sweeping.div(BigNumber.from(10).pow(18 - DONATION_ASSET_DECIMALS));
+      // use 10% diff to account for eth price / slippage (OP is > $2, donation = usdc)
+      const lowerBound = normalized.mul(1000).div(10_000);
 
-        // TODO: check events (expecting swap, xcall, swept)
-        const emittedTopics = receipt.events.map(e => e.topics[0]);
-        expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
-        expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
-        expect(emittedTopics.includes(DEPOSIT_SIG)).to.be.true;
-        expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
+      // send sweep tx
+      const tx = await donation.connect(wallet).sweep(constants.AddressZero, 3000, sweeping, lowerBound, 100);
+      const receipt = await tx.wait();
 
-        // Ensure tokens got sent to connext
-        expect((await randomToken.balanceOf(donation.address)).toString()).to.be.eq("0")
-        // Only asserting balance increased
-        expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
-      })
-    })
+      const emittedTopics = receipt.events.map(e => e.topics[0]);
+      expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
+      expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
+      expect(emittedTopics.includes(DEPOSIT_SIG)).to.be.true;
+      expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
 
-    describe("should work with specified slippage", async () => {
-      before(async () => {
-        // fund the donation contract with eth, random token, and donation asset
-        await fund(constants.AddressZero, utils.parseEther("1"), wallet, donation.address);
-
-        await fund(DONATION_ASSET, utils.parseUnits("1", DONATION_ASSET_DECIMALS), whale, donation.address);
-
-        await fund(randomToken.address, utils.parseUnits("1", await randomToken.decimals()), whale, donation.address);
-      });
-
-      it("should work for donation asset", async () => {
-        // get initial connext balances
-        const initConnext = await donationToken.balanceOf(CONNEXT);
-
-        // send sweep tx
-        const sweeping = await donationToken.balanceOf(donation.address);
-        await expect(donation.connect(wallet).functions["sweep(address,uint24,uint256,uint256,uint256)"](DONATION_ASSET, 0, sweeping, 100, 100)).to.emit(donation, "Swept");
-
-        // Ensure tokens got sent to connext
-        expect((await donationToken.balanceOf(donation.address)).toString()).to.be.eq("0")
-        expect((await donationToken.balanceOf(CONNEXT)).toString()).to.be.eq(initConnext.add(sweeping));
-      });
-
-      it("should work for random token", async () => {
-        // get initial connext balances
-        const initConnext = await donationToken.balanceOf(CONNEXT);
-
-        // send sweep tx
-        const sweeping = await randomToken.balanceOf(donation.address);
-        // NOTE: using 50% slippage
-        const tx = await donation.connect(wallet).functions["sweep(address,uint24,uint256,uint256,uint256)"](randomToken.address, 3000, sweeping, 5000, 1000);
-        const receipt = await tx.wait();
-
-        const emittedTopics = receipt.events.map(e => e.topics[0]);
-        expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
-        expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
-        expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
-
-        // Ensure tokens got sent to connext
-        expect((await randomToken.balanceOf(donation.address)).toString()).to.be.eq("0")
-        // Only asserting balance increased
-        expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
-      });
-
-      it("should work for native asset", async () => {
-        // get initial connext balances
-        const initConnext = await donationToken.balanceOf(CONNEXT);
-
-        // send sweep tx
-        const sweeping = await ethers.provider.getBalance(donation.address);
-        // NOTE: using 50% slippage
-        const tx = await donation.connect(wallet).functions["sweep(address,uint24,uint256,uint256,uint256)"](constants.AddressZero, 3000, sweeping, 5000, 100);
-        const receipt = await tx.wait();
-
-        const emittedTopics = receipt.events.map(e => e.topics[0]);
-        expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
-        expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
-        expect(emittedTopics.includes(DEPOSIT_SIG)).to.be.true;
-        expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
-
-        // Ensure tokens got sent to connext
-        expect((await ethers.provider.getBalance(donation.address)).toString()).to.be.eq("0")
-        // Only asserting balance increased
-        expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
-      })
+      // Ensure tokens got sent to connext
+      expect((await ethers.provider.getBalance(donation.address)).toString()).to.be.eq("0")
+      // Only asserting balance increased
+      expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
     })
   })
 });

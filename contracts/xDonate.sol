@@ -109,60 +109,18 @@ contract xDonate {
     /// @param fromAsset The asset to move to mainnet
     /// @param poolFee The `poolFee` on the uniswap `fromAsset` <> `donationAsset` pool
     /// @param amountIn The amount of asset to move to mainnet
-    /// @param uniswapSlippage The allowed slippage on uniswap pool bps (i.e. 1% is 100)
+    /// @param amountOutMin The minimum amount out
     /// @param connextSlippage The allowed slippage on the Connext transfer in bps
     function sweep(
         address fromAsset,
         uint24 poolFee,
         uint256 amountIn,
-        uint256 uniswapSlippage,
+        uint256 amountOutMin,
         uint256 connextSlippage
     ) external payable onlySweeper {
-        _sweep (
-            fromAsset,
-            poolFee,
-            amountIn,
-            uniswapSlippage,
-            connextSlippage
-        );
-    }
-
-    /// @notice Moves funds from this contract to the `donationAddress` on the specified
-    ///         `domain`. Swaps into `donationAddress` if needed. Defaults slippage to 1%.
-    /// @param fromAsset The asset to move to mainnet
-    /// @param poolFee The `poolFee` on the uniswap `fromAsset` <> `donationAsset` pool
-    /// @param amountIn The amount of asset to move to mainnet
-    function sweep(
-        address fromAsset,
-        uint24 poolFee,
-        uint256 amountIn
-    ) external payable onlySweeper {
-        _sweep (
-            fromAsset,
-            poolFee,
-            amountIn,
-            100, // 1% default max slippage
-            100 // 1% default max slippage
-        );
-    }
-
-    /// @notice Moves funds from this contract to the `donationAddress` on the specified
-    ///         `domain`. Swaps into `donationAddress` if needed.
-    /// @param fromAsset The asset to move to mainnet
-    /// @param poolFee The `poolFee` on the uniswap `fromAsset` <> `donationAsset` pool
-    /// @param amountIn The amount of asset to move to mainnet
-    /// @param uniswapSlippage The allowed slippage on uniswap pool bps (i.e. 1% is 100)
-    /// @param connextSlippage The allowed slippage on the Connext transfer in bps
-    function _sweep(
-        address fromAsset,
-        uint24 poolFee,
-        uint256 amountIn,
-        uint256 uniswapSlippage,
-        uint256 connextSlippage
-    ) internal {
         // Sanity check: amounts above mins
         require(amountIn > 0, "!amount");
-        require(uniswapSlippage >= MIN_SLIPPAGE, "!uniswapSlippage");
+        require(amountOutMin > 0, "!amountOut");
         require(connextSlippage >= MIN_SLIPPAGE, "!connextSlippage");
 
         uint256 amountOut = amountIn;
@@ -175,7 +133,7 @@ contract xDonate {
 
         // swap to donation asset if needed
         if (fromAsset != donationAsset) {
-            amountOut = _swapForDonationAsset(fromAsset, poolFee, uniswapSlippage, amountIn);
+            amountOut = _swapForDonationAsset(fromAsset, poolFee, amountOutMin, amountIn);
         }
 
         // NOTE: max approval done in constructor
@@ -198,14 +156,11 @@ contract xDonate {
     function _swapForDonationAsset(
         address fromAsset,
         uint24 poolFee,
-        uint256 uniswapSlippage,
+        uint256 amountOutMin,
         uint256 amountIn
     ) internal returns (uint256) {
         // Approve the uniswap router to spend fromAsset.
         TransferHelper.safeApprove(fromAsset, address(swapRouter), amountIn);
-
-        // Normalize to donation asset decimals
-        uint256 normalized = normalizeDecimals(IERC20Metadata(fromAsset).decimals(), donationAssetDecimals, amountIn);
 
         // Set up uniswap swap params.
         ISwapRouter.ExactInputSingleParams memory params =
@@ -216,7 +171,7 @@ contract xDonate {
                 recipient: address(this),
                 deadline: block.timestamp,
                 amountIn: amountIn,
-                amountOutMinimum: normalized * (10_000 - uniswapSlippage) / 10_000,
+                amountOutMinimum: amountOutMin,
                 sqrtPriceLimitX96: 0
             });
 
@@ -228,18 +183,5 @@ contract xDonate {
         require(!sweepers[sweeper], "approved");
         sweepers[sweeper] = true;
         emit SweeperAdded(sweeper, msg.sender);
-    }
-
-    function normalizeDecimals(
-        uint8 decimalsIn,
-        uint8 decimalsOut,
-        uint256 amount
-    ) internal pure returns (uint256) {
-        if (decimalsIn == decimalsOut) {
-            return amount;
-        }
-        // Convert this value to the same decimals as _out
-        uint256 normalized = decimalsIn < decimalsOut ? amount * (10**(decimalsOut - decimalsIn)) : amount / (10**(decimalsIn - decimalsOut));
-        return normalized;
     }
 }
