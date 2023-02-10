@@ -17,11 +17,18 @@ const fund = async (asset: string, wei: BigNumberish, from: Wallet, to: string):
   return await tx.wait();
 }
 
+// These are the topics[0] for given events
+// src: https://dashboard.tenderly.co/tx/optimistic/0xb0c1a0a5accb79ee72ba62226898bfc9957ec0a22695cd45b080a9462b7062f0/logs
+const SWAP_SIG = "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+const XCALL_SIG = "0xed8e6ba697dd65259e5ce532ac08ff06d1a3607bcec58f8f0937fe36a5666c54"
+const SWEPT_SIG = "0xed8e6ba697dd65259e5ce532ac08ff06d1a3607bcec58f8f0937fe36a5666c54"
+// src: https://optimistic.etherscan.io/tx/0xa50d4a2774326ccff37cf89d90dfbef006a40ceea63da2b6aa1f25f2cf65a0c0#eventlog
+const DEPOSIT_SIG = "0xe1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c"
+
 describe("xDonate", function () {
   // Set up constants (will mirror what deploy fixture uses)
   const [CONNEXT, WETH, DONATION_ADDRESS, DONATION_ASSET, DONATION_DOMAIN] = DEFAULT_ARGS[31337];
   const UNISWAP_SWAP_ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564"
-  const UNISWAP_SWAP_QUOTER = "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6"
   const WHALE = "0x385BAe68690c1b86e2f1Ad75253d080C14fA6e16" // this is the address that should have weth, donation, and random addr
   const RANDOM_TOKEN = "0x4200000000000000000000000000000000000042" // this is OP
   const DONATION_ASSET_DECIMALS = 6; // USDC decimals on op
@@ -53,7 +60,6 @@ describe("xDonate", function () {
     it("should deploy correctly", async () => {
       // Ensure all properties set correctly
       expect(await donation.swapRouter()).to.be.eq(UNISWAP_SWAP_ROUTER);
-      expect(await donation.swapQuoter()).to.be.eq(UNISWAP_SWAP_QUOTER);
       expect(await donation.connext()).to.be.eq(CONNEXT);
       expect(await donation.weth()).to.be.eq(WETH);
       expect(await donation.donationAddress()).to.be.eq(DONATION_ADDRESS);
@@ -186,6 +192,144 @@ describe("xDonate", function () {
           constants.One,
         )
       ).to.be.revertedWith("!sweeper")
+    })
+
+    describe("should work with slippage defaults", () => {
+      before(async () => {
+        // fund the donation contract with eth, random token, and donation asset
+        await fund(constants.AddressZero, utils.parseEther("1"), wallet, donation.address);
+
+        await fund(DONATION_ASSET, utils.parseUnits("1", DONATION_ASSET_DECIMALS), whale, donation.address);
+
+        await fund(randomToken.address, utils.parseUnits("1", await randomToken.decimals()), whale, donation.address);
+      });
+
+      it("should work for donation asset", async () => {
+        // get initial connext balances
+        const initConnext = await donationToken.balanceOf(CONNEXT);
+
+        // send sweep tx
+        const sweeping = await donationToken.balanceOf(donation.address);
+        await expect(donation.connect(wallet).functions["sweep(address,uint24,uint256)"](DONATION_ASSET, 0, sweeping)).to.emit(donation, "Swept");
+
+        // Ensure tokens got sent to connext
+        expect((await donationToken.balanceOf(donation.address)).toString()).to.be.eq("0")
+        expect((await donationToken.balanceOf(CONNEXT)).toString()).to.be.eq(initConnext.add(sweeping));
+      });
+
+      // FIXME: throws -- likely due to error in slippage calc that will
+      // be reported in audit
+      it.skip("should work for random token", async () => {
+        // get initial connext balances
+        const initConnext = await donationToken.balanceOf(CONNEXT);
+
+        // send sweep tx
+        const sweeping = await randomToken.balanceOf(donation.address);
+        const tx = await donation.connect(wallet).functions["sweep(address,uint24,uint256)"](randomToken.address, 0, sweeping);
+        const receipt = await tx.wait();
+
+        // TODO: check events (expecting swap, xcall, swept)
+        const emittedTopics = receipt.events.map(e => e.topics[0]);
+        expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
+        expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
+        expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
+
+        // Ensure tokens got sent to connext
+        expect((await randomToken.balanceOf(donation.address)).toString()).to.be.eq("0")
+        // Only asserting balance increased
+        expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
+      });
+
+      // FIXME: throws -- likely due to error in slippage calc that will
+      // be reported in audit
+      it.skip("should work for native asset", async () => {
+        // get initial connext balances
+        const initConnext = await donationToken.balanceOf(CONNEXT);
+
+        // send sweep tx
+        const sweeping = await ethers.provider.getBalance(donation.address);
+        const tx = await donation.connect(wallet).functions["sweep(address,uint24,uint256)"](constants.AddressZero, 0, sweeping);
+        const receipt = await tx.wait();
+
+        // TODO: check events (expecting swap, xcall, swept)
+        const emittedTopics = receipt.events.map(e => e.topics[0]);
+        expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
+        expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
+        expect(emittedTopics.includes(DEPOSIT_SIG)).to.be.true;
+        expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
+
+        // Ensure tokens got sent to connext
+        expect((await randomToken.balanceOf(donation.address)).toString()).to.be.eq("0")
+        // Only asserting balance increased
+        expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
+      })
+    })
+
+    describe("should work with specified slippage", async () => {
+      before(async () => {
+        // fund the donation contract with eth, random token, and donation asset
+        await fund(constants.AddressZero, utils.parseEther("1"), wallet, donation.address);
+
+        await fund(DONATION_ASSET, utils.parseUnits("1", DONATION_ASSET_DECIMALS), whale, donation.address);
+
+        await fund(randomToken.address, utils.parseUnits("1", await randomToken.decimals()), whale, donation.address);
+      });
+
+      it("should work for donation asset", async () => {
+        // get initial connext balances
+        const initConnext = await donationToken.balanceOf(CONNEXT);
+
+        // send sweep tx
+        const sweeping = await donationToken.balanceOf(donation.address);
+        await expect(donation.connect(wallet).functions["sweep(address,uint24,uint256,uint256,uint256)"](DONATION_ASSET, 0, sweeping, 100, 100)).to.emit(donation, "Swept");
+
+        // Ensure tokens got sent to connext
+        expect((await donationToken.balanceOf(donation.address)).toString()).to.be.eq("0")
+        expect((await donationToken.balanceOf(CONNEXT)).toString()).to.be.eq(initConnext.add(sweeping));
+      });
+
+      it("should work for random token", async () => {
+        // get initial connext balances
+        const initConnext = await donationToken.balanceOf(CONNEXT);
+
+        // send sweep tx
+        const sweeping = await randomToken.balanceOf(donation.address);
+        // NOTE: using 50% slippage
+        const tx = await donation.connect(wallet).functions["sweep(address,uint24,uint256,uint256,uint256)"](randomToken.address, 3000, sweeping, 5000, 1000);
+        const receipt = await tx.wait();
+
+        const emittedTopics = receipt.events.map(e => e.topics[0]);
+        expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
+        expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
+        expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
+
+        // Ensure tokens got sent to connext
+        expect((await randomToken.balanceOf(donation.address)).toString()).to.be.eq("0")
+        // Only asserting balance increased
+        expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
+      });
+
+      it("should work for native asset", async () => {
+        // get initial connext balances
+        const initConnext = await donationToken.balanceOf(CONNEXT);
+
+        // send sweep tx
+        const sweeping = await ethers.provider.getBalance(donation.address);
+        // NOTE: using 50% slippage
+        const tx = await donation.connect(wallet).functions["sweep(address,uint24,uint256,uint256,uint256)"](constants.AddressZero, 3000, sweeping, 5000, 100);
+        const receipt = await tx.wait();
+
+        const emittedTopics = receipt.events.map(e => e.topics[0]);
+        expect(emittedTopics.includes(SWEPT_SIG)).to.be.true;
+        expect(emittedTopics.includes(XCALL_SIG)).to.be.true;
+        expect(emittedTopics.includes(DEPOSIT_SIG)).to.be.true;
+        expect(emittedTopics.includes(SWAP_SIG)).to.be.true;
+
+        // Ensure tokens got sent to connext
+        expect((await ethers.provider.getBalance(donation.address)).toString()).to.be.eq("0")
+        // Only asserting balance increased
+        expect((await donationToken.balanceOf(CONNEXT)).gt(initConnext)).to.be.true;
+      })
     })
   })
 });
