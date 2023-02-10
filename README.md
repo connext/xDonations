@@ -10,28 +10,22 @@ Using `xDonation.sol` allows anyone to donate funds, regardless of what chain th
 
 ### Why whitelist the sweeper?
 
-The sweeper has the ability to set slippage on the funds sent to the donation address. While it is not strictly required to whitelist the caller of this function, using a whitelist provides an additional layer of protection that ensures slippage is reasonable and no malicious tokens are interacted with. They *CANNOT* change where the funds are sent, or which asset is donated.
+The sweeper has the ability to set slippage on the funds sent to the donation address. While it is not strictly required to whitelist the caller of this function, using a whitelist provides an additional layer of protection that ensures slippage is reasonable and no malicious tokens are interacted with. They _CANNOT_ change where the funds are sent, or which asset is donated.
 
 ## Development
 
 - Build:
+
   ```sh
   npm i && npm run build
   ```
 
-- Configure your .env:
-  ```sh
-  PRIVATE_KEY="<PRIVATE_KEY_WITHOUT_0x_PREFIX_HERE>"
-  ETHERSCAN_API_KEY="<API_KEY_HERE>"
-  ```
+- Copy the `.env.example` into a `.env` and populate
 
 - Deploy using `hardhat`:
+
   ```sh
-  npx hardhat run scripts/deploy.ts --network <NETWORK>
+  npx hardhat deploy --network <NETWORK>
   ```
 
-- Verify using `hardhat`:
-  ```sh
-  npx hardhat run scripts/deploy.ts --network <NETWORK> "DEPLOYED_ADDR" "UNISWAP_SWAP_ROUTER_ADDR" "CONNEXT_ADDR" "WETH_ADDR" "DONATION_ADDR" "DONATION_DOMAIN"
-  ```
-  
+  This will also verify the contracts if the API keys are configured.
