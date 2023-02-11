@@ -34,7 +34,7 @@ contract xDonate {
     uint256 public constant MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
 
     /// @notice Stores the lower bound for slippage used in sweep as sanity check
-    uint256 public constant MIN_SLIPPAGE = 10; // 0.01% is min slippage
+    uint256 public constant MIN_SLIPPAGE = 10; // 0.1% is min slippage
 
     //////////////////// Storage
     /// @notice UniswapV3 swap router contract to swap into `donationAsset`
