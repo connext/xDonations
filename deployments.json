@@ -285,6 +285,292 @@
       }
     }
   ],
+  "137": [
+    {
+      "name": "polygon",
+      "chainId": "137",
+      "contracts": {
+        "xDonate": {
+          "address": "0x2FA3c2a133cBFC01efF52ac225B74BBB961D1F9B",
+          "abi": [
+            {
+              "inputs": [
+                {
+                  "internalType": "contract IConnext",
+                  "name": "_connext",
+                  "type": "address"
+                },
+                {
+                  "internalType": "contract IWeth",
+                  "name": "_weth",
+                  "type": "address"
+                },
+                {
+                  "internalType": "address",
+                  "name": "_donationAddress",
+                  "type": "address"
+                },
+                {
+                  "internalType": "address",
+                  "name": "_donationAsset",
+                  "type": "address"
+                },
+                {
+                  "internalType": "uint32",
+                  "name": "_donationDomain",
+                  "type": "uint32"
+                }
+              ],
+              "stateMutability": "nonpayable",
+              "type": "constructor"
+            },
+            {
+              "anonymous": false,
+              "inputs": [
+                {
+                  "indexed": true,
+                  "internalType": "address",
+                  "name": "added",
+                  "type": "address"
+                },
+                {
+                  "indexed": true,
+                  "internalType": "address",
+                  "name": "caller",
+                  "type": "address"
+                }
+              ],
+              "name": "SweeperAdded",
+              "type": "event"
+            },
+            {
+              "anonymous": false,
+              "inputs": [
+                {
+                  "indexed": true,
+                  "internalType": "bytes32",
+                  "name": "crosschainId",
+                  "type": "bytes32"
+                },
+                {
+                  "indexed": false,
+                  "internalType": "address",
+                  "name": "donationAsset",
+                  "type": "address"
+                },
+                {
+                  "indexed": false,
+                  "internalType": "uint256",
+                  "name": "donationAmount",
+                  "type": "uint256"
+                },
+                {
+                  "indexed": false,
+                  "internalType": "uint256",
+                  "name": "relayerFee",
+                  "type": "uint256"
+                },
+                {
+                  "indexed": false,
+                  "internalType": "address",
+                  "name": "sweeper",
+                  "type": "address"
+                }
+              ],
+              "name": "Swept",
+              "type": "event"
+            },
+            {
+              "inputs": [],
+              "name": "MAX_INT",
+              "outputs": [
+                {
+                  "internalType": "uint256",
+                  "name": "",
+                  "type": "uint256"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "MIN_SLIPPAGE",
+              "outputs": [
+                {
+                  "internalType": "uint256",
+                  "name": "",
+                  "type": "uint256"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "internalType": "address",
+                  "name": "sweeper",
+                  "type": "address"
+                }
+              ],
+              "name": "addSweeper",
+              "outputs": [],
+              "stateMutability": "nonpayable",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "connext",
+              "outputs": [
+                {
+                  "internalType": "contract IConnext",
+                  "name": "",
+                  "type": "address"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "donationAddress",
+              "outputs": [
+                {
+                  "internalType": "address",
+                  "name": "",
+                  "type": "address"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "donationAsset",
+              "outputs": [
+                {
+                  "internalType": "address",
+                  "name": "",
+                  "type": "address"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "donationAssetDecimals",
+              "outputs": [
+                {
+                  "internalType": "uint8",
+                  "name": "",
+                  "type": "uint8"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "donationDomain",
+              "outputs": [
+                {
+                  "internalType": "uint32",
+                  "name": "",
+                  "type": "uint32"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "swapRouter",
+              "outputs": [
+                {
+                  "internalType": "contract ISwapRouter",
+                  "name": "",
+                  "type": "address"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "internalType": "address",
+                  "name": "fromAsset",
+                  "type": "address"
+                },
+                {
+                  "internalType": "uint24",
+                  "name": "poolFee",
+                  "type": "uint24"
+                },
+                {
+                  "internalType": "uint256",
+                  "name": "amountIn",
+                  "type": "uint256"
+                },
+                {
+                  "internalType": "uint256",
+                  "name": "amountOutMin",
+                  "type": "uint256"
+                },
+                {
+                  "internalType": "uint256",
+                  "name": "connextSlippage",
+                  "type": "uint256"
+                }
+              ],
+              "name": "sweep",
+              "outputs": [],
+              "stateMutability": "payable",
+              "type": "function"
+            },
+            {
+              "inputs": [
+                {
+                  "internalType": "address",
+                  "name": "",
+                  "type": "address"
+                }
+              ],
+              "name": "sweepers",
+              "outputs": [
+                {
+                  "internalType": "bool",
+                  "name": "",
+                  "type": "bool"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "inputs": [],
+              "name": "weth",
+              "outputs": [
+                {
+                  "internalType": "contract IWeth",
+                  "name": "",
+                  "type": "address"
+                }
+              ],
+              "stateMutability": "view",
+              "type": "function"
+            },
+            {
+              "stateMutability": "payable",
+              "type": "receive"
+            }
+          ]
+        }
+      }
+    }
+  ],
   "42161": [
     {
       "name": "arbitrum-one",
