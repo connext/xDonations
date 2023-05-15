@@ -26,6 +26,13 @@ export const DEFAULT_ARGS: Record<number, string[]> = {
         "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8", // USDC on Arbitrum (donation asset)
         "6648936" // Ethereum domain ID
     ],
+    137: [
+        "0x11984dc4465481512eb5b777E44061C158CF2259", // Connext on Polygon
+        "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", // Weth on Polygon
+        "0x6a5704a2dd938ffb2cdfa8f55d39bffd37e6d494", // Donation address Ethereum
+        "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", // DAI on Polygon (donation asset)
+        "6648936" // Ethereum domain ID
+    ],
 }
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
